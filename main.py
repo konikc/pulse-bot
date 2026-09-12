@@ -1,12 +1,14 @@
 import asyncio
+import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiohttp import web
 
-# --- ВАШИ ДАННЫЕ АВТОМАТИЧЕСКИ ПРОПИСАНЫ ---
+# --- ВАШИ ДАННЫЕ ПРОПИСАНЫ ---
 BOT_TOKEN = "8612937803:AAHY-mx1Xm7eX7BbdaqjJ4olYMrNErOm6TE"
 ADMIN_ID = 6462524616  
-DEV_CHAT_LINK = "https://t.me/+18aZ2iVLUOU4Mjhi"
+DEV_CHAT_LINK = "https://t.me"
 
 # --- ШАБЛОН АНКЕТЫ ---
 ANKETA_TEMPLATE = (
@@ -26,10 +28,7 @@ dp = Dispatcher()
 @dp.chat_join_request()
 async def handle_join_request(update: types.ChatJoinRequest):
     try:
-        # Автоматически отклоняем заявку в группу, чтобы очистить списки чатов
         await update.decline()
-        
-        # Сразу пишем пользователю в ЛС и выдаем шаблон анкеты
         await bot.send_message(chat_id=update.from_user.id, text=ANKETA_TEMPLATE)
     except Exception as e:
         print(f"Ошибка при обработке заявки: {e}")
@@ -37,11 +36,9 @@ async def handle_join_request(update: types.ChatJoinRequest):
 # 2. Получение заполненной анкеты в ЛС бота -> Пересылка админу с кнопками
 @dp.message(F.chat.type == "private")
 async def handle_anketa(message: types.Message):
-    # Если пишет сам админ, игнорируем, чтобы не зацикливать
     if message.from_user.id == ADMIN_ID:
         return
         
-    # Формируем текст для админа
     admin_text = (
         f"📋 **Новая заявка от кандидата!**\n"
         f"Имя: {message.from_user.full_name}\n"
@@ -50,7 +47,6 @@ async def handle_anketa(message: types.Message):
         f"**Текст анкеты:**\n{message.text}"
     )
     
-    # Создаем интерактивные кнопки модерации для админа
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🟢 Принять", callback_data=f"accept_{message.from_user.id}"),
@@ -58,10 +54,8 @@ async def handle_anketa(message: types.Message):
         ]
     ])
     
-    # Отправляем анкету вам в ЛС
     await bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=keyboard, parse_mode="Markdown")
-    # Подтверждение кандидату
-    await message.answer("Спасибо! Ваша анкета отправлена руководителю на рассмотрение.")
+    await message.answer("Спасибо! Ваша анкету отправлена руководителю на рассмотрение.")
 
 # 3. Обработка нажатия кнопок [Принять] / [Отклонить] в вашем ЛС
 @dp.callback_query(F.data.startswith("accept_") | F.data.startswith("decline_"))
@@ -70,7 +64,6 @@ async def process_moderation(callback: types.CallbackQuery):
     user_id = int(user_id)
     
     if action == "accept":
-        # Отправляем кандидату автоматическое поздравление со ссылкой на чат
         await bot.send_message(
             chat_id=user_id,
             text=f"🎉 Поздравляем! Ваша заявка одобрена. Добро пожаловать в команду Pulse.\n"
@@ -79,7 +72,6 @@ async def process_moderation(callback: types.CallbackQuery):
         await callback.message.edit_text(callback.message.text + "\n\n✅ **Кандидат принят, ссылка отправлена.**")
     
     elif action == "decline":
-        # Отправляем кандидату вежливый отказ
         await bot.send_message(
             chat_id=user_id,
             text="Спасибо за отклик! К сожалению, на данный момент мы не готовы пригласить вас в команду разработки. Желаем удачи!"
@@ -88,9 +80,26 @@ async def process_moderation(callback: types.CallbackQuery):
         
     await callback.answer()
 
+# --- МИНИ-СЕРВЕР ДЛЯ ОБМАНА РЕНДЕРА (ПОРТ) ---
+async def handle_web(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_web)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Читаем порт, который требует Render
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Веб-сервер успешно запущен на порту {port}")
+
 async def main():
+    # Запускаем фоновый веб-сервер для проверки портов Render
+    await start_web_server()
+    # Запускаем опрос Telegram
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-  
